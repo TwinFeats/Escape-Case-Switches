@@ -5,7 +5,6 @@
 #include <PJONSoftwareBitBang.h>
 #include <ButtonDebounce.h>
 #include "../../Escape Room v2 Master/src/tracks.h"
-#include <NeoPixelBrightnessBus.h>
 
 void sendMp3(int track);
 void sendLcd(char *line1, char *line2);
@@ -13,14 +12,15 @@ void send(uint8_t *msg, uint8_t len);
 
 /* -------------------- GAME STATE ---------------------------*/
 boolean isGameOver = false;
-#define CASE 1
-#define SWITCH1 2
-#define SWITCH2 3
-#define SWITCH3 4
-#define SWITCH4 5
-#define SWITCH5 6
-#define SWITCH6 7
-#define POWER_LIGHT 8
+#define PIN_CASE        1
+#define PIN_SWITCH1     2
+#define PIN_SWITCH2     3
+#define PIN_SWITCH3     4
+#define PIN_SWITCH4     5
+#define PIN_SWITCH5     6
+#define PIN_SWITCH6     7
+#define PIN_POWER_LIGHT 8
+#define PIN_COMM        13
 
 // case is first supplied power
 #define INITIAL 0
@@ -46,21 +46,17 @@ uint8_t GAMES[5] = {POWER_ON, MODEM, FIREWALL, CONTROL_ROOM, REACTOR_CORE};
 const char *gameNames[5] = {"Power", "Modem", "Firewall", "Control room",
                             "Reactor core"};
 
-uint8_t gameState = POWER_OFF;
+uint8_t gameState = INITIAL;
 boolean clearToProceedToNextPanel = true;
 uint8_t switchState[6] = {HIGH, HIGH, HIGH, HIGH, HIGH, HIGH};
 uint8_t switchesGame[5][6];
 
-NeoPixelBus<NeoRgbFeature, Neo400KbpsMethod> powerLight(1, POWER_LIGHT);
-
-ButtonDebounce switch1(SWITCH1, 100);
-ButtonDebounce switch2(SWITCH2, 100);
-ButtonDebounce switch3(SWITCH3, 100);
-ButtonDebounce switch4(SWITCH4, 100);
-ButtonDebounce switch5(SWITCH5, 100);
-ButtonDebounce switch6(SWITCH6, 100);
-
-RgbColor green(0,255,0);
+ButtonDebounce switch1(PIN_SWITCH1, 100);
+ButtonDebounce switch2(PIN_SWITCH2, 100);
+ButtonDebounce switch3(PIN_SWITCH3, 100);
+ButtonDebounce switch4(PIN_SWITCH4, 100);
+ButtonDebounce switch5(PIN_SWITCH5, 100);
+ButtonDebounce switch6(PIN_SWITCH6, 100);
 
 void checkSwitches() {
   for (int g = 0; g < 5; g++) {
@@ -81,8 +77,7 @@ void checkSwitches() {
         clearToProceedToNextPanel = false;  //wait for panel to be completed before enabling switches for next panel
       }
       if (gameState == POWER_ON) {
-        powerLight.SetPixelColor(0, green);
-        powerLight.Show();
+          digitalWrite(PIN_POWER_LIGHT, HIGH);
       }
 
       gameState = GAMES[found];
@@ -162,12 +157,14 @@ bool checkForDupSwitch(int g) {
 }
 
 void initGameState() {
-  pinMode(SWITCH1, INPUT_PULLUP);
-  pinMode(SWITCH2, INPUT_PULLUP);
-  pinMode(SWITCH3, INPUT_PULLUP);
-  pinMode(SWITCH4, INPUT_PULLUP);
-  pinMode(SWITCH5, INPUT_PULLUP);
-  pinMode(SWITCH6, INPUT_PULLUP);
+  pinMode(PIN_SWITCH1, INPUT_PULLUP);
+  pinMode(PIN_SWITCH2, INPUT_PULLUP);
+  pinMode(PIN_SWITCH3, INPUT_PULLUP);
+  pinMode(PIN_SWITCH4, INPUT_PULLUP);
+  pinMode(PIN_SWITCH5, INPUT_PULLUP);
+  pinMode(PIN_SWITCH6, INPUT_PULLUP);
+  pinMode(PIN_POWER_LIGHT, OUTPUT);
+  digitalWrite(PIN_POWER_LIGHT, LOW);
   for (int g = 0; g < 5; g++) {
     do {
       for (int s = 0; s < 6; s++) {
@@ -181,23 +178,21 @@ void initGameState() {
   switch4.setCallback(switch4Pressed);
   switch5.setCallback(switch5Pressed);
   switch6.setCallback(switch6Pressed);
-  powerLight.Begin();
-  powerLight.Show();
 }
 
 /* -----------------END GAME STATE ----------------------------*/
 
 /* ------------------- CASE ----------------------------------*/
-#define caseOpen 49
 
-ButtonDebounce caseSwitch(caseOpen, 100);
+ButtonDebounce caseSwitch(PIN_CASE, 100);
+bool introPlayed = false;
 
 void caseOpenClose(const int state) {
   if (gameState == INITIAL) {
     if (state == LOW) {
       // case was closed
       gameState = POWER_OFF;
-      send((uint8_t *)"G",1);
+      send((uint8_t *)"G",1); //Let master know
     } else {
       // this shouldn't happen as case is open when connected to power, so
       // ignore and wait for case to close
@@ -206,8 +201,9 @@ void caseOpenClose(const int state) {
     if (state == LOW) {
       // tried closing case while playing
       sendMp3(TRACK_COUNTDOWN_STILL_RUNNING);
-    } else {
-      if (gameState == POWER_OFF) {
+    } else {  //case opened
+      if (gameState == POWER_OFF && !introPlayed) {
+        introPlayed = true;
         sendMp3(TRACK_INTRO);
       }
     }
@@ -215,7 +211,8 @@ void caseOpenClose(const int state) {
 }
 
 void initCase() {
-   caseSwitch.setCallback(caseOpenClose);
+  pinMode(PIN_CASE, INPUT_PULLUP); 
+  caseSwitch.setCallback(caseOpenClose);
 }
 /* -----------------------End Case ------------------------ */
 
@@ -259,7 +256,7 @@ void send(uint8_t *msg, uint8_t len) {
 }
 
 void initComm() {
-  bus.strategy.set_pin(13);
+  bus.strategy.set_pin(PIN_COMM);
   bus.include_sender_info(false);
   bus.set_error(error_handler);
   bus.set_receiver(commReceive);
@@ -270,8 +267,8 @@ void setup() {
   delay(2000);  //let Master start first
   // put your setup code here, to run once:
   initComm();
-  initCase();
   initGameState();
+  initCase();
 }
 
 void loop() {
