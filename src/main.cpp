@@ -12,14 +12,14 @@ void send(uint8_t *msg, uint8_t len);
 
 /* -------------------- GAME STATE ---------------------------*/
 boolean isGameOver = false;
-#define PIN_CASE        1
-#define PIN_SWITCH1     2
-#define PIN_SWITCH2     3
-#define PIN_SWITCH3     4
-#define PIN_SWITCH4     5
-#define PIN_SWITCH5     6
-#define PIN_SWITCH6     7
-#define PIN_POWER_LIGHT 8
+#define PIN_CASE        2
+#define PIN_SWITCH1     3
+#define PIN_SWITCH2     4
+#define PIN_SWITCH3     5
+#define PIN_SWITCH4     6
+#define PIN_SWITCH5     7
+#define PIN_SWITCH6     8
+#define PIN_POWER_LIGHT 9
 #define PIN_COMM        13
 
 // case is first supplied power
