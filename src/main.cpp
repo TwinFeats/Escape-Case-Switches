@@ -1,24 +1,24 @@
 #include <Arduino.h>
 #include <Wire.h>
 #define PJON_MAX_PACKETS 4
-#define PJON_PACKET_MAX_LENGTH 33
+#define PJON_PACKET_MAX_LENGTH 52
 #include <PJONSoftwareBitBang.h>
 #include <ButtonDebounce.h>
 #include "../../Escape Room v2 Master/src/tracks.h"
 
 void sendMp3(int track);
-void sendLcd(char *line1, char *line2);
+void sendLcd(const char *line1, const char *line2);
 void send(uint8_t *msg, uint8_t len);
 
 /* -------------------- GAME STATE ---------------------------*/
 boolean isGameOver = false;
-#define PIN_CASE        2
-#define PIN_SWITCH1     3
-#define PIN_SWITCH2     4
-#define PIN_SWITCH3     5
-#define PIN_SWITCH4     6
-#define PIN_SWITCH5     7
-#define PIN_SWITCH6     8
+#define PIN_SWITCH1     2
+#define PIN_SWITCH2     3
+#define PIN_SWITCH3     4
+#define PIN_SWITCH4     5
+#define PIN_SWITCH5     6
+#define PIN_SWITCH6     7
+#define PIN_CASE        8
 #define PIN_POWER_LIGHT 9
 #define PIN_COMM        13
 
@@ -51,37 +51,50 @@ boolean clearToProceedToNextPanel = true;
 uint8_t switchState[6] = {HIGH, HIGH, HIGH, HIGH, HIGH, HIGH};
 uint8_t switchesGame[5][6];
 
-ButtonDebounce switch1(PIN_SWITCH1, 100);
-ButtonDebounce switch2(PIN_SWITCH2, 100);
-ButtonDebounce switch3(PIN_SWITCH3, 100);
-ButtonDebounce switch4(PIN_SWITCH4, 100);
-ButtonDebounce switch5(PIN_SWITCH5, 100);
-ButtonDebounce switch6(PIN_SWITCH6, 100);
+ButtonDebounce switch1(PIN_SWITCH1, 50);
+ButtonDebounce switch2(PIN_SWITCH2, 50);
+ButtonDebounce switch3(PIN_SWITCH3, 50);
+ButtonDebounce switch4(PIN_SWITCH4, 50);
+ButtonDebounce switch5(PIN_SWITCH5, 50);
+ButtonDebounce switch6(PIN_SWITCH6, 50);
+
+void reportCurrentSwitches() {
+  char line1[17], line2[17];
+  line1[0] = 0;
+  line2[0] = 0;
+  strcat(line1, "Switches");
+  for (int s = 0; s < 6; s++) {
+    strcat(line2, switchState[s] == HIGH ? "\2" : "\1");
+    strcat(line2, " ");
+  }
+  sendLcd(line1, line2);
+}
 
 void checkSwitches() {
+//  reportCurrentSwitches();
+  if (!clearToProceedToNextPanel) return;
   for (int g = 0; g < 5; g++) {
-    int found = -1;
+    int found = g;
     for (int s = 0; s < 6; s++) {
       if (switchesGame[g][s] != switchState[s]) {
-        found = g;
+        found = -1;
+        break;
       }
-      break;
     }
     if (found != -1) {
       if (gameState == POWER_OFF && found != 0) return;
-      if (!clearToProceedToNextPanel || gameState != found - 1) { //ensure current state is the one prev to the current switches
-        sendMp3(TRACK_FUNCTION_INACCESSIBLE);
+      if (gameState != found+1) { //ensure current state is the one prev to the current switches
         return;
       }
       if (gameState != POWER_OFF) {
         clearToProceedToNextPanel = false;  //wait for panel to be completed before enabling switches for next panel
       }
+
+      gameState = GAMES[found];
       if (gameState == POWER_ON) {
           digitalWrite(PIN_POWER_LIGHT, HIGH);
       }
-
-      gameState = GAMES[found];
-      sendMp3(found + 3);  //+3 because track 3 is the power up track
+//      sendMp3(found + 3);  //+3 because track 3 is the power up track
       send((uint8_t *)"G", 1);  //progress game state on master
       break;
     }
@@ -120,9 +133,9 @@ void switch6Pressed(const int state) {
 
 void reportSwitches() {
   char line1[17], line2[17];
-  line1[0] = 0;
-  line2[0] = 0;
   for (int g = 0; g < 5; g++) {
+    line1[0] = 0;
+    line2[0] = 0;
     strcat(line1, gameNames[g]);
     for (int s = 0; s < 6; s++) {
       strcat(line2, switchesGame[g][s] == HIGH ? "\2" : "\1");
@@ -131,6 +144,9 @@ void reportSwitches() {
     sendLcd(line1, line2);
     delay(10000);
   }
+  line1[0] = 0;
+  line2[0] = 0;
+  sendLcd(line1, line2);
 }
 
 bool checkForDupSwitch(int g) {
@@ -178,13 +194,14 @@ void initGameState() {
   switch4.setCallback(switch4Pressed);
   switch5.setCallback(switch5Pressed);
   switch6.setCallback(switch6Pressed);
+  reportSwitches();
 }
 
 /* -----------------END GAME STATE ----------------------------*/
 
 /* ------------------- CASE ----------------------------------*/
 
-ButtonDebounce caseSwitch(PIN_CASE, 100);
+ButtonDebounce caseSwitch(PIN_CASE, 500);
 bool introPlayed = false;
 
 void caseOpenClose(const int state) {
@@ -192,9 +209,7 @@ void caseOpenClose(const int state) {
     if (state == LOW) {
       // case was closed
       gameState = POWER_OFF;
-      send((uint8_t *)"G",1); //Let master know
     } else {
-      // this shouldn't happen as case is open when connected to power, so
       // ignore and wait for case to close
     }
   } else {
@@ -204,7 +219,7 @@ void caseOpenClose(const int state) {
     } else {  //case opened
       if (gameState == POWER_OFF && !introPlayed) {
         introPlayed = true;
-        sendMp3(TRACK_INTRO);
+        send((uint8_t *)"G",1); //Let master know - go to next state
       }
     }
   }
@@ -220,8 +235,23 @@ PJON<SoftwareBitBang> bus(10);
 
 void error_handler(uint8_t code, uint16_t data, void *custom_pointer) {
   if(code == PJON_CONNECTION_LOST) {
-    Serial.print("Connection lost with device id ");
-    Serial.println(bus.packets[data].content[0], DEC);
+    Serial.print("Connection with device ID ");
+    Serial.print(bus.packets[data].content[0], DEC);
+    Serial.println(" is lost.");
+  }
+  else if(code == PJON_PACKETS_BUFFER_FULL) {
+    Serial.print("Packet buffer is full, has now a length of ");
+    Serial.println(data);
+    Serial.println("Possible wrong bus configuration!");
+    Serial.println("higher PJON_MAX_PACKETS if necessary.");
+  }
+  else if(code == PJON_CONTENT_TOO_LONG) {
+    Serial.print("Content is too long, length: ");
+    Serial.println(data);
+  } else {
+    Serial.println("PJON error");
+    Serial.println(code);
+    Serial.println(data);
   }
 }
 
@@ -235,12 +265,14 @@ void commReceive(uint8_t *data, uint16_t len, const PJON_Packet_Info &info) {
   }
 }
 
-void sendLcd(char *line1, char *line2) {
-  uint8_t msg[33];
+void sendLcd(const char *line1, const char *line2) {
+  uint8_t msg[35];
   msg[0] = 'L';
-  strncpy((char *)&msg[1], line1, 16);
-  strncpy((char *)&msg[17], line2, 16);
-  send(msg, 33);
+  strncpy((char *)&msg[1], line1, 17);
+  strncpy((char *)&msg[18], line2, 17);
+  Serial.print("Sending ");
+  Serial.println((char *)msg);
+  send(msg, 35);
 }
 
 void sendMp3(int track) {
@@ -252,27 +284,35 @@ void sendMp3(int track) {
 
 void send(uint8_t *msg, uint8_t len) {
   bus.send(1, msg, len);
-  bus.update();
+  while (bus.update()) {};//wait for send to be completed
 }
 
 void initComm() {
   bus.strategy.set_pin(PIN_COMM);
-  bus.include_sender_info(false);
   bus.set_error(error_handler);
   bus.set_receiver(commReceive);
   bus.begin();
 }
 
 void setup() {
+  randomSeed(analogRead(0));
+  Serial.begin(9600);
   delay(2000);  //let Master start first
   // put your setup code here, to run once:
   initComm();
-  initGameState();
+  delay(1000);
   initCase();
+  initGameState();
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
+  caseSwitch.update();
+  switch1.update();
+  switch2.update();
+  switch3.update();
+  switch4.update();
+  switch5.update();
+  switch6.update();
   bus.update();
   bus.receive(750);  //try to receive for .75 ms
 }
