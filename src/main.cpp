@@ -8,6 +8,7 @@
 
 void sendMp3(int track);
 void sendLcd(const char *line1, const char *line2);
+void send(const char *msg, int len);
 void send(uint8_t *msg, uint8_t len);
 
 /* -------------------- GAME STATE ---------------------------*/
@@ -20,6 +21,7 @@ boolean isGameOver = false;
 #define PIN_SWITCH6     7
 #define PIN_CASE        8
 #define PIN_POWER_LIGHT 9
+#define PIN_CAMERA      10
 #define PIN_COMM        13
 
 // case is first supplied power
@@ -71,7 +73,7 @@ void reportCurrentSwitches() {
 }
 
 void checkSwitches() {
-//  reportCurrentSwitches();
+  reportCurrentSwitches();
   if (!clearToProceedToNextPanel) return;
   for (int g = 0; g < 5; g++) {
     int found = g;
@@ -95,7 +97,7 @@ void checkSwitches() {
           digitalWrite(PIN_POWER_LIGHT, HIGH);
       }
 //      sendMp3(found + 3);  //+3 because track 3 is the power up track
-      send((uint8_t *)"G", 1);  //progress game state on master
+      send("G", 1);  //progress game state on master
       break;
     }
   }
@@ -219,14 +221,17 @@ void caseOpenClose(const int state) {
     } else {  //case opened
       if (gameState == POWER_OFF && !introPlayed) {
         introPlayed = true;
-        send((uint8_t *)"G",1); //Let master know - go to next state
+        digitalWrite(PIN_CAMERA, HIGH); //start camera
+        send("G",1); //Let master know - go to next state
       }
     }
   }
 }
 
 void initCase() {
-  pinMode(PIN_CASE, INPUT_PULLUP); 
+  pinMode(PIN_CASE, INPUT_PULLUP);
+  pinMode(PIN_CAMERA, OUTPUT);
+  digitalWrite(PIN_CAMERA, LOW);
   caseSwitch.setCallback(caseOpenClose);
 }
 /* -----------------------End Case ------------------------ */
@@ -270,8 +275,6 @@ void sendLcd(const char *line1, const char *line2) {
   msg[0] = 'L';
   strncpy((char *)&msg[1], line1, 17);
   strncpy((char *)&msg[18], line2, 17);
-  Serial.print("Sending ");
-  Serial.println((char *)msg);
   send(msg, 35);
 }
 
@@ -280,6 +283,12 @@ void sendMp3(int track) {
   msg[0] = 'M';
   msg[1] = track;
   send(msg, 2);
+}
+
+void send(const char *msg, int len) {
+  uint8_t buf[35];
+  memcpy(buf, msg, len);
+  send(buf, len);
 }
 
 void send(uint8_t *msg, uint8_t len) {
