@@ -4,6 +4,7 @@
 #define PJON_PACKET_MAX_LENGTH 52
 #include <PJONSoftwareBitBang.h>
 #include <ButtonDebounce.h>
+#include <arduino-timer.h>
 #include "../../Escape Room v2 Master/src/tracks.h"
 
 void sendMp3(int track);
@@ -73,7 +74,7 @@ void reportCurrentSwitches() {
 }
 
 void checkSwitches() {
-  reportCurrentSwitches();
+//  reportCurrentSwitches();
   if (!clearToProceedToNextPanel) return;
   for (int g = 0; g < 5; g++) {
     int found = g;
@@ -174,6 +175,13 @@ bool checkForDupSwitch(int g) {
   return false;
 }
 
+Timer<1> startupTimer;
+
+bool callReportSwitches(void *t) {
+  reportSwitches();
+  return false;
+}
+
 void initGameState() {
   pinMode(PIN_SWITCH1, INPUT_PULLUP);
   pinMode(PIN_SWITCH2, INPUT_PULLUP);
@@ -196,7 +204,7 @@ void initGameState() {
   switch4.setCallback(switch4Pressed);
   switch5.setCallback(switch5Pressed);
   switch6.setCallback(switch6Pressed);
-  reportSwitches();
+  startupTimer.in(8000*3 + 500*32 + 1000, callReportSwitches);
 }
 
 /* -----------------END GAME STATE ----------------------------*/
@@ -211,6 +219,7 @@ void caseOpenClose(const int state) {
     if (state == LOW) {
       // case was closed
       gameState = POWER_OFF;
+      digitalWrite(PIN_CAMERA, HIGH); //start camera
     } else {
       // ignore and wait for case to close
     }
@@ -221,7 +230,6 @@ void caseOpenClose(const int state) {
     } else {  //case opened
       if (gameState == POWER_OFF && !introPlayed) {
         introPlayed = true;
-        digitalWrite(PIN_CAMERA, HIGH); //start camera
         send("G",1); //Let master know - go to next state
       }
     }
@@ -285,6 +293,13 @@ void sendMp3(int track) {
   send(msg, 2);
 }
 
+void sendTone(int tone) {
+  uint8_t msg[2];
+  msg[0] = 'T';
+  msg[1] = tone;
+  send(msg, 2);
+}
+
 void send(const char *msg, int len) {
   uint8_t buf[35];
   memcpy(buf, msg, len);
@@ -303,15 +318,21 @@ void initComm() {
   bus.begin();
 }
 
+void startup() {
+  digitalWrite(PIN_POWER_LIGHT, HIGH);
+  delay(1000);
+  digitalWrite(PIN_POWER_LIGHT, LOW);
+}
+
 void setup() {
   randomSeed(analogRead(0));
   Serial.begin(9600);
   delay(2000);  //let Master start first
   // put your setup code here, to run once:
   initComm();
-  delay(1000);
   initCase();
   initGameState();
+  startup();
 }
 
 void loop() {
@@ -322,6 +343,7 @@ void loop() {
   switch4.update();
   switch5.update();
   switch6.update();
+  startupTimer.tick();
   bus.update();
   bus.receive(750);  //try to receive for .75 ms
 }
